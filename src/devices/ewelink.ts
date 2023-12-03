@@ -15,6 +15,31 @@ const fzLocal = {
             return {rain: (zoneStatus & 1) > 0};
         },
     } satisfies Fz.Converter,
+    BSD29: {
+        cluster: '64529',
+        type: ['attributeReport', 'readResponse'],
+        options: [
+            exposes.options.calibration('power', 'percentual'), exposes.options.precision('power'),
+            exposes.options.calibration('current', 'percentual'), exposes.options.precision('current'),
+            exposes.options.calibration('voltage', 'percentual'), exposes.options.precision('voltage'),
+        ],
+        convert: (model, msg, publish, options, meta) => {
+            if (utils.hasAlreadyProcessedMessage(msg, model)) return;
+            const lookup = [
+                {key: '28678', name: 'power', factor: 'acPower'},
+                {key: '28677', name: 'voltage', factor: 'acVoltage'},
+                {key: '28676', name: 'current', factor: 'acCurrent'},
+            ];
+            const payload: KeyValue = {};
+            for (const entry of lookup) {
+                if (msg.data.hasOwnProperty(entry.key)) {
+                    const value = msg.data[entry.key] / 1000;
+                    payload[entry.name] = utils.calibrateAndPrecisionRoundOptions(value, options, entry.name);
+                }
+            }
+            return payload;
+        },
+    } satisfies Fz.Converter,
 };
 
 const definitions: Definition[] = [
@@ -33,6 +58,22 @@ const definitions: Definition[] = [
         onEvent: async (type, data, device) => {
             device.skipDefaultResponse = true;
         },
+    },
+    {
+        zigbeeModel: ['CK-BL702-SWP-01(7020)'],
+        model: 'BSD29',
+        vendor: 'eWeLink',
+        description: 'Zigbee 3.0 smart plug 13A (UK version)',
+        fromZigbee: [fz.on_off_skip_duplicate_transaction, fzLocal.BSD29],
+        toZigbee: [tz.on_off],
+        configure: async (device, coordinatorEndpoint, logger) => {
+            const endpoint = device.getEndpoint(1);
+            await reporting.bind(endpoint, coordinatorEndpoint, ['genOnOff']);
+            await reporting.onOff(endpoint);
+            device.powerSource = 'Mains (single phase)';
+            device.save();
+        },
+        exposes: [e.power(), e.current(), e.voltage(), e.switch()],
     },
     {
         zigbeeModel: ['SA-003-Zigbee'],
